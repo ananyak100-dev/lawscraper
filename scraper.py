@@ -6,7 +6,8 @@ import requests
 from bs4 import BeautifulSoup, PageElement
 from tqdm import tqdm
 
-from scraper_utils import CODES_BASE_URL, HEADERS, JUR_URL_MAP, JUSTIA_BASE_URL
+from scraper_utils import CODES_BASE_URL, HEADERS, JUR_URL_MAP, JUSTIA_BASE_URL, REGULATIONS_BASE_URL
+import os
 
 
 def extract_links_from_content(content: PageElement) -> list:
@@ -34,7 +35,7 @@ def extract_links_from_content(content: PageElement) -> list:
     
     return links
 
-def process_code_leaf(state_name: str, url: str, jsonl_fp: TextIOWrapper | None) -> dict: 
+def process_code_leaf(state_name: str, url: str, jsonl_fp: TextIOWrapper | None, is_reg: bool=False) -> dict: 
     """
     Process the content of a leaf node in the Justia website.
 
@@ -54,8 +55,12 @@ def process_code_leaf(state_name: str, url: str, jsonl_fp: TextIOWrapper | None)
         path_arr = path_str.split(sep)
         title_arr = list(soup.find('h1').stripped_strings)
         title_str = soup.find('h1').get_text(f' {sep} ', strip=True)
-        has_univ_cite = soup.find('div', class_='citation').find('strong') == 'Universal Citation:'
-        citation = soup.find('div', class_='citation').find('span').get_text(strip=True)
+        if is_reg:
+            has_univ_cite = soup.find('div', class_='has-margin-bottom-20').find('b').get_text(strip=True) == 'Universal Citation:'
+            citation = soup.find(href='/citations.html').get_text(strip=True)
+        else:
+            has_univ_cite = soup.find('div', class_='citation').find('strong').get_text(strip=True) == 'Universal Citation:'
+            citation = soup.find('div', class_='citation').find('span').get_text(strip=True)
         content = soup.find(id='codes-content').get_text('\n', strip=True)
         record = {
             'url': url,
@@ -112,7 +117,7 @@ def scrape_all_states(state_map):
             state_laws_content[state_code] = content
     return state_laws_content
 
-def collect_leaf_urls(state_name: str, init_url: str, jsonl_fp: TextIOWrapper | None, internal_class: str="codes-listing", site_url: str=JUSTIA_BASE_URL, write_jsonl=True) -> list:
+def collect_leaf_urls(state_name: str, init_url: str, jsonl_fp: TextIOWrapper | None, internal_class: str="codes-listing", site_url: str=JUSTIA_BASE_URL, regs: bool=False, write_jsonl=True) -> list:
     """
     Collect all leaf URLs from the given site URL.
 
@@ -135,18 +140,22 @@ def collect_leaf_urls(state_name: str, init_url: str, jsonl_fp: TextIOWrapper | 
             else:
                 collected_urls.append(url)
                 print(url)
-                leaf_record = process_code_leaf(state_name, url, jsonl_fp)
+                leaf_record = process_code_leaf(state_name, url, jsonl_fp, regs)
         else:
             print(f"Failed to retrieve content for {url}, Status Code: {response.status_code}")
     helper(init_url)
     return collected_urls
 
 def collect_codes_for_state(state_name: str, year: int=2023, regs: bool = False):
-    state_init_url = f"https://regulations.justia.com/states/{state_name}/" if regs else f"https://law.justia.com/codes/{JUR_URL_MAP[state_name]}/{year}/"
+    state_init_url = f"https://regulations.justia.com/states/{JUR_URL_MAP[state_name]}/" if regs else f"https://law.justia.com/codes/{JUR_URL_MAP[state_name]}/{year}/"
     save_dir = "regs" if regs else "codes"
+    site_base_url = REGULATIONS_BASE_URL if regs else JUSTIA_BASE_URL
+    # if {save_dir} does not exist, create it
+    if not os.path.exists(save_dir):
+        os.makedirs(save_dir)
     # Create a new 'codes/{state_name}.jsonl' file
     with open(f"{save_dir}/{state_name}.jsonl", 'w') as f:
-        collect_leaf_urls(state_name, state_init_url, f)
+        collect_leaf_urls(state_name, state_init_url, f, regs=regs, site_url=site_base_url)
 
 
 if __name__ == "__main__":
@@ -155,5 +164,4 @@ if __name__ == "__main__":
     parser.add_argument("--year", type=int, help="The year to scrape the codes for.", default=2023)
     parser.add_argument("-r", "-regs", help="Scrape the regulations instead of the codes.", action=argparse.BooleanOptionalAction)
     args_ = parser.parse_args()
-    breakpoint()
     collect_codes_for_state(args_.state, year=args_.year, regs=args_.r)

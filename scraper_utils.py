@@ -4,6 +4,7 @@ HEADERS = {
 }
 JUSTIA_BASE_URL = "https://law.justia.com"
 CODES_BASE_URL = "https://law.justia.com/codes/"
+REGULATIONS_BASE_URL = "https://regulations.justia.com"
 
 JUR_URL_MAP = {
     "AL": "alabama",
