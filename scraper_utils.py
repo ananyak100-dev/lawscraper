@@ -1,10 +1,12 @@
 # Custom headers to simulate a browser
 HEADERS = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36'
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36"
 }
 JUSTIA_BASE_URL = "https://law.justia.com"
 CODES_BASE_URL = "https://law.justia.com/codes/"
 REGULATIONS_BASE_URL = "https://regulations.justia.com"
+
+FAILED_FAILPATH = "failed.jsonl"
 
 JUR_URL_MAP = {
     "AL": "alabama",
@@ -59,7 +61,7 @@ JUR_URL_MAP = {
     "WY": "wyoming",
     "DC": "district-of-columbia",
     "PR": "puerto-rico",
-    "VI": "virgin-islands"
+    "VI": "virgin-islands",
 }
 
 JUR_NAME_MAP = {
@@ -115,5 +117,5 @@ JUR_NAME_MAP = {
     "WY": "Wyoming",
     "DC": "District of Columbia",
     "PR": "Puerto Rico",
-    "VI": "U.S. Virgin Islands"
+    "VI": "U.S. Virgin Islands",
 }
