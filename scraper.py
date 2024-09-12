@@ -1,10 +1,13 @@
+import argparse
+import json
 from io import TextIOWrapper
+
 import requests
 from bs4 import BeautifulSoup, PageElement
-import json
-
 from tqdm import tqdm
-from scraper_utils import JUR_URL_MAP, JUSTIA_BASE_URL, CODES_BASE_URL, HEADERS
+
+from scraper_utils import CODES_BASE_URL, HEADERS, JUR_URL_MAP, JUSTIA_BASE_URL
+
 
 def extract_links_from_content(content: PageElement) -> list:
     """
@@ -138,12 +141,19 @@ def collect_leaf_urls(state_name: str, init_url: str, jsonl_fp: TextIOWrapper | 
     helper(init_url)
     return collected_urls
 
-def collect_codes_for_state(state_name: str, year: int=2023):
-    state_init_url = f"https://law.justia.com/codes/{JUR_URL_MAP[state_name]}/{year}/"
+def collect_codes_for_state(state_name: str, year: int=2023, regs: bool = False):
+    state_init_url = f"https://regulations.justia.com/states/{state_name}/" if regs else f"https://law.justia.com/codes/{JUR_URL_MAP[state_name]}/{year}/"
+    save_dir = "regs" if regs else "codes"
     # Create a new 'codes/{state_name}.jsonl' file
-    with open(f"codes/{state_name}.jsonl", 'w') as f:
+    with open(f"{save_dir}/{state_name}.jsonl", 'w') as f:
         collect_leaf_urls(state_name, state_init_url, f)
 
 
 if __name__ == "__main__":
-    collect_codes_for_state('AL')
+    parser = argparse.ArgumentParser(prog="scraper.py", description="Scrape the Justia website for state codes.")
+    parser.add_argument("state", type=str, help="The state code to scrape.", choices=JUR_URL_MAP.keys())
+    parser.add_argument("--year", type=int, help="The year to scrape the codes for.", default=2023)
+    parser.add_argument("-r", "-regs", help="Scrape the regulations instead of the codes.", action=argparse.BooleanOptionalAction)
+    args_ = parser.parse_args()
+    breakpoint()
+    collect_codes_for_state(args_.state, year=args_.year, regs=args_.r)
