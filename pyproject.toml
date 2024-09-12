@@ -1,0 +1,19 @@
+[project]
+name = "justia_scraper"
+version = "0.1.0"
+description = "A scraper for Justia"
+authors = [
+    {name  = "Emaan Hariri", email = "ehariri@stanford.edu"}
+]
+requires-python = ">=3.10"
+dependencies = [
+    "beautifulsoup4",
+    "requests",
+    "lxml",
+    "tqdm"
+]
+
+[tool.uv]
+dev-dependencies = [
+    "pre-commit"
+]
