@@ -1,5 +1,6 @@
 import argparse
 import json
+import os
 from io import TextIOWrapper
 
 import requests
@@ -8,13 +9,12 @@ from tqdm import tqdm
 
 from scraper_utils import (
     CODES_BASE_URL,
+    FAILED_FAILPATH,
     HEADERS,
     JUR_URL_MAP,
     JUSTIA_BASE_URL,
     REGULATIONS_BASE_URL,
-    FAILED_FAILPATH,
 )
-import os
 
 
 def extract_links_from_content(content: PageElement) -> list:
@@ -50,7 +50,7 @@ def process_code_leaf(
     - url (str): The URL of the leaf node.
     - jsonl_fp (TextIOWrapper): The file pointer to write the JSONL records to.
     - is_reg (bool): Whether the URL is for a regulation or not.
-    
+
     Returns:
     - dict: A dictionary containing the title and content of the leaf node.
     """

@@ -8,6 +8,8 @@ REGULATIONS_BASE_URL = "https://regulations.justia.com"
 
 FAILED_FAILPATH = "failed.jsonl"
 
+CUSTOM_SEP = chr(8250)
+
 JUR_URL_MAP = {
     "AL": "alabama",
     "AK": "alaska",
