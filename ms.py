@@ -76,7 +76,6 @@ def get_last_path(state_abb: str, regs: bool = False) -> list[str]:
         except OSError:
             f.seek(0)
         last_line = f.readline().decode()
-    breakpoint()
     last_url = json.loads(last_line)["url"]
     last_path_ = _href_to_path(last_url, state_abb)
     return last_path_
@@ -218,13 +217,11 @@ def collect_leaf_urls(
                         helper(f"{site_url}{href}")
                 else:
                     if continue_from is not None:
-                        breakpoint()
                         # we can turn the continue_from flag off if our path is the same as last_path
                         if continue_from == _href_to_path(url, state_name):
                             continue_from = None
                             progress_queue.put((state_name, "completed_batch"))
                     else:
-                        breakpoint()
                         collected_urls.append(url)
                         process_code_leaf(state_name, url, jsonl_fp, regs)
             else:
@@ -370,6 +367,6 @@ if __name__ == "__main__":
 
     # Process states in parallel with progress displayed in the main thread
     process_states_in_parallel(
-        args_.states, year=args_.year, regs=args_.r, overwrite=args_.o
+        args_.states, year=args_.year, regs=args_.regs, overwrite=args_.o
     )
     # last_path("AL")
