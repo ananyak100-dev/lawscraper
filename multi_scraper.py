@@ -1,23 +1,20 @@
 import argparse
 import json
 import os
+import queue
+import threading
 from io import TextIOWrapper
-from tqdm import tqdm
+
 import requests
 from bs4 import BeautifulSoup
-from scraper_utils import (
-    CODES_BASE_URL,
-    FAILED_FAILPATH,
-    HEADERS,
-    JUR_URL_MAP,
-    JUSTIA_BASE_URL,
-    REGULATIONS_BASE_URL,
-)
-import threading
-import queue
+from tqdm import tqdm
+
+from scraper_utils import (CODES_BASE_URL, FAILED_FAILPATH, HEADERS,
+                           JUR_URL_MAP, JUSTIA_BASE_URL, REGULATIONS_BASE_URL)
 
 # Queue to send progress updates from worker threads to the main thread
 progress_queue = queue.Queue()
+
 
 def extract_links_from_content(content):
     links = []
@@ -26,6 +23,7 @@ def extract_links_from_content(content):
         link_href = a_tag["href"]
         links.append({"text": link_text, "href": link_href})
     return links
+
 
 def process_code_leaf(state_name, url, jsonl_fp=None, is_reg=False):
     try:
@@ -49,7 +47,7 @@ def process_code_leaf(state_name, url, jsonl_fp=None, is_reg=False):
             if jsonl_fp:
                 jsonl_fp.write(json.dumps(record))
                 jsonl_fp.write("\n")
-            
+
             # Send progress update to the main thread (completed)
             progress_queue.put((state_name, "completed"))
             progress_queue.put((state_name, f"last:{url}"))
@@ -66,7 +64,15 @@ def process_code_leaf(state_name, url, jsonl_fp=None, is_reg=False):
         with open(FAILED_FAILPATH, "a") as f:
             f.write(f"{url}\n")
 
-def collect_leaf_urls(state_name, init_url, jsonl_fp=None, internal_class="codes-listing", site_url=JUSTIA_BASE_URL, regs=False):
+
+def collect_leaf_urls(
+    state_name,
+    init_url,
+    jsonl_fp=None,
+    internal_class="codes-listing",
+    site_url=JUSTIA_BASE_URL,
+    regs=False,
+):
     collected_urls = []
 
     def helper(url):
@@ -91,13 +97,14 @@ def collect_leaf_urls(state_name, init_url, jsonl_fp=None, internal_class="codes
                     f.write(f"{url}\n")
         except Exception as e:
             # Notify failure via the progress queue
-                progress_queue.put((state_name, "failed"))
-                progress_queue.put((state_name, f"last:{url}"))
-                with open(FAILED_FAILPATH, "a") as f:
-                    f.write(f"{url}\n")
+            progress_queue.put((state_name, "failed"))
+            progress_queue.put((state_name, f"last:{url}"))
+            with open(FAILED_FAILPATH, "a") as f:
+                f.write(f"{url}\n")
 
     helper(init_url)
     return collected_urls
+
 
 def collect_codes_for_state(state_name, year=2023, regs=False):
     state_init_url = (
@@ -112,7 +119,10 @@ def collect_codes_for_state(state_name, year=2023, regs=False):
         os.makedirs(save_dir)
 
     with open(f"{save_dir}/{state_name}.jsonl", "w") as f:
-        collect_leaf_urls(state_name, state_init_url, f, regs=regs, site_url=site_base_url)
+        collect_leaf_urls(
+            state_name, state_init_url, f, regs=regs, site_url=site_base_url
+        )
+
 
 def worker_thread(state_name, year, regs):
     """
@@ -120,9 +130,10 @@ def worker_thread(state_name, year, regs):
     """
     collect_codes_for_state(state_name, year, regs)
 
+
 def process_states_in_parallel(states, year=2023, regs=False):
     threads = []
-    
+
     # Start the worker threads for each state
     for state in states:
         thread = threading.Thread(target=worker_thread, args=(state, year, regs))
@@ -130,8 +141,13 @@ def process_states_in_parallel(states, year=2023, regs=False):
         thread.start()
 
     # Initialize tqdm progress bars for each state
-    progress_bars = {state: tqdm(desc=f"{state}", total=0, position=i, dynamic_ncols=True) for i, state in enumerate(states)}
-    state_progress = {state: {"completed": 0, "failed": 0, "last": ""} for state in states}
+    progress_bars = {
+        state: tqdm(desc=f"{state}", total=0, position=i, dynamic_ncols=True)
+        for i, state in enumerate(states)
+    }
+    state_progress = {
+        state: {"completed": 0, "failed": 0, "last": ""} for state in states
+    }
 
     # Main loop for updating progress bars
     while any(thread.is_alive() for thread in threads) or not progress_queue.empty():
@@ -145,7 +161,7 @@ def process_states_in_parallel(states, year=2023, regs=False):
             elif status == "failed":
                 state_progress[state_name]["failed"] += 1
             elif status.startswith("last:"):
-                state_progress[state_name]["last"] = status[5+29:]
+                state_progress[state_name]["last"] = status[5 + 29 :]
 
             # Update the progress bar description with counts
             progress_bars[state_name].set_description(
@@ -165,13 +181,18 @@ def process_states_in_parallel(states, year=2023, regs=False):
     for thread in threads:
         thread.join()
 
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         prog="scraper.py", description="Scrape the Justia website for state codes."
     )
-    # parser.add_argument(
-    #     "states", nargs="+", type=str, help="The state codes to scrape.", choices=JUR_URL_MAP.keys()
-    # )
+    parser.add_argument(
+        "states",
+        nargs="+",
+        type=str,
+        help="The state codes to scrape.",
+        choices=JUR_URL_MAP.keys(),
+    )
     parser.add_argument(
         "--year", type=int, help="The year to scrape the codes for.", default=2023
     )
@@ -182,7 +203,7 @@ if __name__ == "__main__":
         action=argparse.BooleanOptionalAction,
     )
     args_ = parser.parse_args()
-    args_.states = ["SD","TN","TX","UT","VT","VA","WA","WV","WI","WY"]
-    
+    args_.states = ["SD", "TN", "TX", "UT", "VT", "VA", "WA", "WV", "WI", "WY"]
+
     # Process states in parallel with progress displayed in the main thread
     process_states_in_parallel(args_.states, year=args_.year, regs=args_.r)
