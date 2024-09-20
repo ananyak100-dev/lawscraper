@@ -276,6 +276,7 @@ def collect_codes_for_state(
             site_url=site_base_url,
             continue_from=continue_from,
         )
+        progress_queue.put((state_name, "finished"))
 
 
 def worker_thread(state_name, year, regs):
@@ -285,26 +286,39 @@ def worker_thread(state_name, year, regs):
     collect_codes_for_state(state_name, year, regs)
 
 
-def process_states_in_parallel(states, year=2023, regs=False, overwrite=False):
-    threads = []
+def process_states_in_parallel(
+    states, year=2023, regs=False, overwrite=False, max_threads=4
+):
+    n = len(states)
+    threads = {}
+    if max_threads < len(states):
+        states, remaining_states = states[:max_threads], states[max_threads:]
 
     # Start the worker threads for each state
     for state in states:
         thread = threading.Thread(target=worker_thread, args=(state, year, regs))
-        threads.append(thread)
+        threads[state] = thread
         thread.start()
-
+    
+    positions = {state: i+1 for i, state in enumerate(states)}
     # Initialize tqdm progress bars for each state
-    progress_bars = {
-        state: tqdm(desc=f"{state}", total=0, position=i, dynamic_ncols=True)
-        for i, state in enumerate(states)
+    progress_bars: dict[str, tqdm] = {
+        state: tqdm(desc=f"{state}", total=0, position=positions[state], dynamic_ncols=True)
+        for state in states
     }
+    progress_bars["finished_states"] = tqdm(
+        desc=f"Finished States (0/{n}):", total=0, position=0, dynamic_ncols=True
+    )
     state_progress = {
         state: {"completed": 0, "failed": 0, "last": ""} for state in states
     }
+    finished_states, available_pos = [], set(range(len(states)+1, len(states)+len(remaining_states)+1))
 
     # Main loop for updating progress bars
-    while any(thread.is_alive() for thread in threads) or not progress_queue.empty():
+    while (
+        any(thread.is_alive() for thread in threads.values())
+        or not progress_queue.empty()
+    ):
         try:
             # Get progress updates from the queue
             state_name, status = progress_queue.get(timeout=1)
@@ -318,12 +332,41 @@ def process_states_in_parallel(states, year=2023, regs=False, overwrite=False):
                 state_progress[state_name]["failed"] += 1
             elif status.startswith("last:"):
                 state_progress[state_name]["last"] = status[5 + 29 :]
+            elif status == "finished":
+                finished_states.append(state_name).sort()
+                progress_bars["finished_states"].set_description(
+                    f"Finished States ({len(finished_states)}/{n}): {', '.join(finished_states[-20:])}"
+                )
+                thread: threading.Thread = threads.pop(state_name)
+                thread.join()
+                if remaining_states:
+                    next_state = remaining_states.pop(0)
+                    threads[next_state] = threading.Thread(
+                        target=worker_thread,
+                        args=(next_state, year, regs),
+                    )
+                    old_pos = positions.pop(state_name)
+                    available_pos.add(old_pos)
+                    new_pos = min(available_pos)
+                    available_pos.remove(min(available_pos))
+                    positions[next_state] = new_pos
+                    progress_bars[next_state] = tqdm(
+                        desc=f"{next_state}",
+                        total=0,
+                        position=new_pos,
+                        dynamic_ncols=True,
+                    )
+                    threads[next_state].start()
+                    state_progress[next_state] = {
+                        "completed": 0,
+                        "failed": 0,
+                        "last": "",
+                    }
 
             # Update the progress bar description with counts
             progress_bars[state_name].set_description(
                 f"{state_name}: Completed: {state_progress[state_name]['completed']}; Failed: {state_progress[state_name]['failed']}; Last: {state_progress[state_name]['last'][-60:]}"
             )
-            progress_bars[state_name].update(1)
 
         except queue.Empty:
             # Continue checking for updates
@@ -340,21 +383,35 @@ def process_states_in_parallel(states, year=2023, regs=False, overwrite=False):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        prog="scraper.py", description="Scrape the Justia website for state codes."
+        prog="ms.py", description="Scrape the Justia website for state codes."
     )
-    parser.add_argument(
-        "states",
-        nargs=2,
+    group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument(
+        "-s",
+        "--states",
+        nargs="+",
         type=str,
         help="The state codes to scrape.",
         choices=JUR_URL_MAP.keys(),
+    )
+    group.add_argument(
+        "--range",
+        nargs=2,
+        type=str,
+        help="The range of states to scrape.",
+    )
+    group.add_argument(
+        "--all",
+        default=False,
+        help="Scrape all states.",
+        action=argparse.BooleanOptionalAction,
     )
     parser.add_argument(
         "--year", type=int, help="The year to scrape the codes for.", default=2023
     )
     parser.add_argument(
         "-o",
-        "-overwrite",
+        "--overwrite",
         default=False,
         help="Overwrite the files specified.",
     )
@@ -365,13 +422,32 @@ if __name__ == "__main__":
         help="Scrape the regulations instead of the codes.",
         action=argparse.BooleanOptionalAction,
     )
+    parser.add_argument(
+        "-t",
+        "--threads",
+        type=int,
+        default=4,
+        help="The number of threads to use for scraping.",
+    )
     args_ = parser.parse_args()
-    all_jurs = list(JUR_URL_MAP.keys())
-    s0, s1 = args_.states
-    assert all_jurs.index(s0) <= all_jurs.index(s1)
-    args_.states = all_jurs[all_jurs.index(s0) : all_jurs.index(s1) + 1]
+    if args_.range:
+        all_jurs = list(JUR_URL_MAP.keys())
+        s0, s1 = args_.range
+        assert all_jurs.index(s0) <= all_jurs.index(s1)
+        args_.states = all_jurs[all_jurs.index(s0) : all_jurs.index(s1) + 1]
+    elif args_.all:
+        args_.states = list(JUR_URL_MAP.keys())
+        if not args_.regs: # remove KY, ND, and VI from 
+            args_.states.remove("KY")
+            args_.states.remove("ND")
+            args_.states.remove("VI")
+    breakpoint()
 
     # Process states in parallel with progress displayed in the main thread
     process_states_in_parallel(
-        args_.states, year=args_.year, regs=args_.regs, overwrite=args_.o
+        args_.states,
+        year=args_.year,
+        regs=args_.regs,
+        overwrite=args_.overwrite,
+        max_threads=args_.threads,
     )
