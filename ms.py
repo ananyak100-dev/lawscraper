@@ -299,11 +299,13 @@ def process_states_in_parallel(
         thread = threading.Thread(target=worker_thread, args=(state, year, regs))
         threads[state] = thread
         thread.start()
-    
-    positions = {state: i+1 for i, state in enumerate(states)}
+
+    positions = {state: i + 1 for i, state in enumerate(states)}
     # Initialize tqdm progress bars for each state
     progress_bars: dict[str, tqdm] = {
-        state: tqdm(desc=f"{state}", total=0, position=positions[state], dynamic_ncols=True)
+        state: tqdm(
+            desc=f"{state}", total=0, position=positions[state], dynamic_ncols=True
+        )
         for state in states
     }
     progress_bars["finished_states"] = tqdm(
@@ -312,7 +314,9 @@ def process_states_in_parallel(
     state_progress = {
         state: {"completed": 0, "failed": 0, "last": ""} for state in states
     }
-    finished_states, available_pos = [], set(range(len(states)+1, len(states)+len(remaining_states)+1))
+    finished_states, available_pos = [], set(
+        range(len(states) + 1, len(states) + len(remaining_states) + 1)
+    )
 
     # Main loop for updating progress bars
     while (
@@ -437,11 +441,10 @@ if __name__ == "__main__":
         args_.states = all_jurs[all_jurs.index(s0) : all_jurs.index(s1) + 1]
     elif args_.all:
         args_.states = list(JUR_URL_MAP.keys())
-        if not args_.regs: # remove KY, ND, and VI from 
+        if not args_.regs:  # remove KY, ND, and VI from
             args_.states.remove("KY")
             args_.states.remove("ND")
             args_.states.remove("VI")
-    breakpoint()
 
     # Process states in parallel with progress displayed in the main thread
     process_states_in_parallel(
