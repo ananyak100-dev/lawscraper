@@ -337,7 +337,8 @@ def process_states_in_parallel(
             elif status.startswith("last:"):
                 state_progress[state_name]["last"] = status[5 + 29 :]
             elif status == "finished":
-                finished_states.append(state_name).sort()
+                finished_states.append(state_name)
+                finished_states.sort()
                 progress_bars["finished_states"].set_description(
                     f"Finished States ({len(finished_states)}/{n}): {', '.join(finished_states[-20:])}"
                 )
