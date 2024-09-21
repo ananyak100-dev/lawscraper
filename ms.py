@@ -264,7 +264,7 @@ def collect_codes_for_state(
     state_path = f"{save_dir}/{state_name}.jsonl"
     continue_from = None
     mode = "w"
-    if os.path.exists(state_path) and not overwrite:
+    if os.path.exists(state_path) and os.stat(state_path).st_size != 0 and not overwrite:
         continue_from = get_last_path(state_name, regs)
         mode = "a"
     with open(state_path, mode) as f:
