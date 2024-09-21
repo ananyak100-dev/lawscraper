@@ -446,8 +446,8 @@ if __name__ == "__main__":
             args_.states.remove("KY")
             args_.states.remove("ND")
             args_.states.remove("VI")
-	else:
-	    args_.states.remove("VI")
+        else:
+            args_.states.remove("VI")
 
     # Process states in parallel with progress displayed in the main thread
     process_states_in_parallel(
