@@ -342,7 +342,7 @@ def process_states_in_parallel(
                 progress_bars["finished_states"].set_description(
                     f"Finished States ({len(finished_states)}/{n}): {', '.join(finished_states if len(finished_states) < 20 else ['...'] + finished_states[-20:])}"
                 )
-                state_progress[state_name]["last"] = f"{state_progress[state_name]["last"][:-13]}...[FINISHED]"
+                state_progress[state_name]["last"] = f"{state_progress[state_name]['last'][:-13]}...[FINISHED]"
                 thread: threading.Thread = threads.pop(state_name)
                 thread.join()
                 if remaining_states:
