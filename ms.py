@@ -345,7 +345,7 @@ def process_states_in_parallel(
             elif status == "finished":
                 finished_states.append(state_name)
                 progress_bars["finished_states"].set_description(
-                    f"Finished States ({len(finished_states)}/{n}): {', '.join(finished_states if len(finished_states) < 20 else ['...'] + finished_states[-20:])}"
+                    f"Finished States ({len(finished_states)}/{n}): {', '.join(finished_states if len(finished_states) < 20 else ['...'] + finished_states[-19:])}"
                 )
                 state_progress[state_name][
                     "last"
@@ -381,6 +381,7 @@ def process_states_in_parallel(
             )
             if status == "completed" or status == "failed":
                 progress_bars[state_name].update(1)
+                progress_bars["finished_states"].update(1)
 
         except queue.Empty:
             # Continue checking for updates
