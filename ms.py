@@ -313,7 +313,7 @@ def process_states_in_parallel(
         for state in states
     }
     progress_bars["finished_states"] = tqdm(
-        desc=f"Finished States (0/{n}):", total=0, position=0, dynamic_ncols=True
+        desc=f"Finished States (0/{n}):", total=0, position=0, dynamic_ncols=True, smoothing=0
     )
     state_progress = {
         state: {"completed": 0, "failed": 0, "last": ""} for state in states
