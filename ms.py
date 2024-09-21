@@ -339,7 +339,9 @@ def process_states_in_parallel(
             elif status == "failed":
                 state_progress[state_name]["failed"] += 1
             elif status.startswith("last:"):
-                state_progress[state_name]["last"] = status[38 if regs else 34 :]
+                # 5 is for the "last:" at the beginning of the string
+                # 29 or 38 is for the url up to the state name
+                state_progress[state_name]["last"] = status[43 if regs else 34:]
             elif status == "finished":
                 finished_states.append(state_name)
                 progress_bars["finished_states"].set_description(
