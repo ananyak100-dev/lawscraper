@@ -290,7 +290,7 @@ def process_states_in_parallel(
     states, year=2023, regs=False, overwrite=False, max_threads=4
 ):
     n = len(states)
-    threads = {}
+    threads: dict[str, threading.Thread] = {}
     if max_threads < len(states):
         states, remaining_states = states[:max_threads], states[max_threads:]
 
@@ -335,10 +335,9 @@ def process_states_in_parallel(
             elif status == "failed":
                 state_progress[state_name]["failed"] += 1
             elif status.startswith("last:"):
-                state_progress[state_name]["last"] = status[5 + 29 :]
+                state_progress[state_name]["last"] = status[38 if regs else 34 :]
             elif status == "finished":
                 finished_states.append(state_name)
-                finished_states.sort()
                 progress_bars["finished_states"].set_description(
                     f"Finished States ({len(finished_states)}/{n}): {', '.join(finished_states if len(finished_states) < 20 else ['...'] + finished_states[-20:])}"
                 )
@@ -351,15 +350,13 @@ def process_states_in_parallel(
                         target=worker_thread,
                         args=(next_state, year, regs),
                     )
-                    old_pos = positions.pop(state_name)
-                    available_pos.add(old_pos)
-                    new_pos = min(available_pos)
-                    available_pos.remove(min(available_pos))
-                    positions[next_state] = new_pos
+                    available_pos.add(positions.pop(state_name))
+                    positions[next_state] = min(available_pos)
+                    available_pos.remove(positions[next_state])
                     progress_bars[next_state] = tqdm(
                         desc=f"{next_state}",
                         total=0,
-                        position=new_pos,
+                        position=positions[next_state],
                         dynamic_ncols=True,
                     )
                     threads[next_state].start()
