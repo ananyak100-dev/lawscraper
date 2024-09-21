@@ -264,7 +264,11 @@ def collect_codes_for_state(
     state_path = f"{save_dir}/{state_name}.jsonl"
     continue_from = None
     mode = "w"
-    if os.path.exists(state_path) and os.stat(state_path).st_size != 0 and not overwrite:
+    if (
+        os.path.exists(state_path)
+        and os.stat(state_path).st_size != 0
+        and not overwrite
+    ):
         continue_from = get_last_path(state_name, regs)
         mode = "a"
     with open(state_path, mode) as f:
@@ -304,7 +308,7 @@ def process_states_in_parallel(
     # Initialize tqdm progress bars for each state
     progress_bars: dict[str, tqdm] = {
         state: tqdm(
-            desc=f"{state}", total=0, position=positions[state], dynamic_ncols=True
+            desc=f"{state}", total=None, position=positions[state], dynamic_ncols=True
         )
         for state in states
     }
@@ -341,11 +345,18 @@ def process_states_in_parallel(
                 progress_bars["finished_states"].set_description(
                     f"Finished States ({len(finished_states)}/{n}): {', '.join(finished_states if len(finished_states) < 20 else ['...'] + finished_states[-20:])}"
                 )
-                state_progress[state_name]["last"] = f"{state_progress[state_name]['last'][:-13]}...[FINISHED]"
+                state_progress[state_name][
+                    "last"
+                ] = f"{state_progress[state_name]['last'][:-13]}...[FINISHED]"
                 thread: threading.Thread = threads.pop(state_name)
                 thread.join()
                 if remaining_states:
                     next_state = remaining_states.pop(0)
+                    state_progress[next_state] = {
+                        "completed": 0,
+                        "failed": 0,
+                        "last": "",
+                    }
                     threads[next_state] = threading.Thread(
                         target=worker_thread,
                         args=(next_state, year, regs),
@@ -355,21 +366,19 @@ def process_states_in_parallel(
                     available_pos.remove(positions[next_state])
                     progress_bars[next_state] = tqdm(
                         desc=f"{next_state}",
-                        total=0,
+                        total=None,
                         position=positions[next_state],
                         dynamic_ncols=True,
                     )
                     threads[next_state].start()
-                    state_progress[next_state] = {
-                        "completed": 0,
-                        "failed": 0,
-                        "last": "",
-                    }
+                    state_name = next_state
 
             # Update the progress bar description with counts
             progress_bars[state_name].set_description(
                 f"{state_name}: Completed: {state_progress[state_name]['completed']}; Failed: {state_progress[state_name]['failed']}; Last: {state_progress[state_name]['last'][-60:]}"
             )
+            if status == "completed" or status == "failed":
+                progress_bars[state_name].update(1)
 
         except queue.Empty:
             # Continue checking for updates
