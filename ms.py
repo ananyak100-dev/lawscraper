@@ -295,6 +295,7 @@ def process_states_in_parallel(
 ):
     n = len(states)
     threads: dict[str, threading.Thread] = {}
+    remaining_states = None
     if max_threads < len(states):
         states, remaining_states = states[:max_threads], states[max_threads:]
 
@@ -319,7 +320,7 @@ def process_states_in_parallel(
         state: {"completed": 0, "failed": 0, "last": ""} for state in states
     }
     finished_states, available_pos = [], set(
-        range(len(states) + 1, len(states) + len(remaining_states) + 1)
+        range(len(states) + 1, len(states) + (len(remaining_states) if remaining_states else 0) + 1)
     )
 
     # Main loop for updating progress bars
