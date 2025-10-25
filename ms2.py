@@ -3,6 +3,7 @@ import json
 import os
 import queue
 import threading
+import time
 from io import TextIOWrapper
 from typing import Optional
 
@@ -18,6 +19,40 @@ from scraper_utils import (
     JUSTIA_BASE_URL,
     REGULATIONS_BASE_URL,
 )
+
+
+def fetch_with_retry(url: str, max_retries: int = 3, delay: float = 1.0) -> Optional[requests.Response]:
+    """
+    Fetch a URL with retry logic for failed requests.
+    
+    Args:
+        url (str): The URL to fetch
+        max_retries (int): Maximum number of retry attempts
+        delay (float): Delay between retries in seconds
+        
+    Returns:
+        requests.Response or None: Response object if successful, None if all retries failed
+    """
+    for attempt in range(max_retries + 1):
+        try:
+            response = requests.get(url, headers=HEADERS, timeout=30)
+            if response.status_code == 200:
+                return response
+            elif attempt < max_retries:
+                print(f"Attempt {attempt + 1} failed for {url}, Status: {response.status_code}. Retrying in {delay}s...")
+                time.sleep(delay)
+            else:
+                print(f"All {max_retries + 1} attempts failed for {url}, Status: {response.status_code}")
+                return response
+        except requests.exceptions.RequestException as e:
+            if attempt < max_retries:
+                print(f"Attempt {attempt + 1} failed for {url}, Error: {e}. Retrying in {delay}s...")
+                time.sleep(delay)
+            else:
+                print(f"All {max_retries + 1} attempts failed for {url}, Error: {e}")
+                return None
+    
+    return None
 
 
 def extract_links_from_content(content: PageElement) -> list:
@@ -51,6 +86,7 @@ def process_code_leaf(
     lex_path: Optional[list[int]] = None,
     lock: Optional[threading.Lock] = None,
     pbar: Optional[tqdm] = None,
+    max_retries: int = 3,
 ) -> dict:
     """
     Process the content of a leaf node in the Justia website.
@@ -62,12 +98,13 @@ def process_code_leaf(
     - lex_path (list[int]): The lexicographical path to the leaf node.
     - lock (threading.Lock): A lock to make file writes thread-safe.
     - pbar (tqdm): A tqdm progress bar to update.
+    - max_retries (int): Maximum number of retry attempts for failed requests.
 
     Returns:
     - dict: A dictionary containing the title and content of the leaf node.
     """
-    response = requests.get(url, headers=HEADERS)
-    if response.status_code == 200:
+    response = fetch_with_retry(url, max_retries=max_retries)
+    if response and response.status_code == 200:
         soup: BeautifulSoup = BeautifulSoup(response.content, "html.parser")
         # title = soup.find('h1').get_text(strip=True)
         sep = soup.find("span", class_="breadcrumb-sep").get_text(strip=True)
@@ -109,13 +146,16 @@ def process_code_leaf(
                 jsonl_fp.write(json.dumps(record))
                 jsonl_fp.write("\n")
         if pbar is not None:
-            pbar.update(1)
+            with lock:
+                pbar.update(1)
     else:
+        status_code = response.status_code if response else "No response"
         print(
-            f"Failed to retrieve content for {url}, Status Code: {response.status_code}"
+            f"Failed to retrieve content for {url}, Status Code: {status_code}"
         )
-        with open(FAILED_FAILPATH, "a") as f:
-            f.write(f"{url}\n")
+        with lock:
+            with open(FAILED_FAILPATH, "a") as f:
+                f.write(f"{url}\n")
 
 
 def get_last_lex_path(state_abb: str, regs: bool = False) -> Optional[list[int]]:
@@ -157,12 +197,13 @@ def scrape_branch(
     internal_class: str,
     lock: threading.Lock,
     pbar: Optional[tqdm] = None,
+    max_retries: int = 3,
 ):
     """
     Recursively scrapes a branch of the website.
     """
-    response = requests.get(url, headers=HEADERS)
-    if response.status_code == 200:
+    response = fetch_with_retry(url, max_retries=max_retries)
+    if response and response.status_code == 200:
         soup: BeautifulSoup = BeautifulSoup(response.content, "html.parser")
         internal_links_element = soup.find(
             class_=internal_class
@@ -189,32 +230,58 @@ def scrape_branch(
                 if continue_from and i > start_idx:
                     new_continue_from = None
 
-                scrape_branch(
-                    f"{site_url}{href}",
-                    new_path,
-                    new_continue_from,
-                    state_name,
-                    jsonl_fp,
-                    regs,
-                    site_url,
-                    internal_class,
-                    lock,
-                    pbar,
-                )
+                try:
+                    scrape_branch(
+                        f"{site_url}{href}",
+                        new_path,
+                        new_continue_from,
+                        state_name,
+                        jsonl_fp,
+                        regs,
+                        site_url,
+                        internal_class,
+                        lock,
+                        pbar,
+                        max_retries,
+                    )
+                except Exception as e:
+                    print(f"ERROR: Failed to process {site_url}{href}: {e}")
+                    # Log the failed URL and error, then continue with next child
+                    try:
+                        with lock:
+                            with open(FAILED_FAILPATH, "a") as f:
+                                f.write(f"{site_url}{href} | Error: {e}\n")
+                    except Exception as log_error:
+                        print(f"ERROR: Could not log failed URL: {log_error}")
         else:  # This is a leaf node
             # Skip the exact leaf node we are resuming from
             if continue_from and path == continue_from:
                 return
 
-            process_code_leaf(
-                state_name, url, jsonl_fp, regs, lex_path=path, lock=lock, pbar=pbar
-            )
+            try:
+                process_code_leaf(
+                    state_name, url, jsonl_fp, regs, lex_path=path, lock=lock, pbar=pbar, max_retries=max_retries
+                )
+            except Exception as e:
+                print(f"ERROR: Failed to process leaf {url}: {e}")
+                # Log the failed URL and error
+                try:
+                    with lock:
+                        with open(FAILED_FAILPATH, "a") as f:
+                            f.write(f"{url} | Error: {e}\n")
+                except Exception as log_error:
+                    print(f"ERROR: Could not log failed URL: {log_error}")
     else:
+        status_code = response.status_code if response else "No response"
         print(
-            f"Failed to retrieve content for {url}, Status Code: {response.status_code}"
+            f"Failed to retrieve content for {url}, Status Code: {status_code}"
         )
-        with open(FAILED_FAILPATH, "a") as f:
-            f.write(f"{url}\n")
+        try:
+            with lock:
+                with open(FAILED_FAILPATH, "a") as f:
+                    f.write(f"{url} | Error: {status_code}\n")
+        except Exception as log_error:
+            print(f"ERROR: Could not log failed URL: {log_error}")
 
 
 def worker(
@@ -226,11 +293,12 @@ def worker(
     internal_class: str,
     lock: threading.Lock,
     pbar: Optional[tqdm] = None,
+    max_retries: int = 3,
 ):
     """
     Worker thread function to process tasks from the queue.
     """
-    while not work_queue.empty():
+    while True:
         try:
             href, path, continue_from = work_queue.get_nowait()
         except queue.Empty:
@@ -247,6 +315,7 @@ def worker(
             internal_class=internal_class,
             lock=lock,
             pbar=pbar,
+            max_retries=max_retries,
         )
         work_queue.task_done()
 
@@ -257,6 +326,7 @@ def collect_codes_for_state(
     regs: bool = False,
     resume: bool = False,
     num_threads: int = 4,
+    max_retries: int = 3,
 ) -> None:
     """
     Collect all codes for the given state in parallel.
@@ -281,8 +351,8 @@ def collect_codes_for_state(
             mode = "a"
 
     with open(f"{save_dir}/{state_name}.jsonl", mode) as f:
-        response = requests.get(state_init_url, headers=HEADERS)
-        if response.status_code != 200:
+        response = fetch_with_retry(state_init_url, max_retries=max_retries)
+        if not response or response.status_code != 200:
             print(f"Failed to get initial page for {state_name}")
             return
 
@@ -326,6 +396,7 @@ def collect_codes_for_state(
                     internal_class,
                     file_lock,
                     pbar,
+                    max_retries,
                 ),
             )
             thread.start()
@@ -335,6 +406,9 @@ def collect_codes_for_state(
             thread.join()
 
         pbar.close()
+        
+        # Simple summary
+        print(f"Scraping completed! Check failed.jsonl for any URLs that couldn't be processed.")
 
 
 if __name__ == "__main__":
@@ -366,6 +440,12 @@ if __name__ == "__main__":
         default=4,
         help="The number of threads to use.",
     )
+    parser.add_argument(
+        "--max-retries",
+        type=int,
+        default=3,
+        help="Maximum number of retry attempts for failed requests.",
+    )
     args_ = parser.parse_args()
     collect_codes_for_state(
         args_.state,
@@ -373,4 +453,5 @@ if __name__ == "__main__":
         regs=args_.r,
         resume=args_.resume,
         num_threads=args_.threads,
+        max_retries=args_.max_retries,
     )
