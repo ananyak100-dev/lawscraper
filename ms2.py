@@ -9,6 +9,13 @@ from typing import Optional
 
 import requests
 from bs4 import BeautifulSoup, PageElement
+from tenacity import (
+    retry,
+    stop_after_attempt,
+    wait_exponential,
+    retry_if_not_result,
+    retry_if_exception_type,
+)
 from tqdm import tqdm
 
 from scraper_utils import (
@@ -21,38 +28,57 @@ from scraper_utils import (
 )
 
 
+def _is_good_response(response):
+    """Check if response is successful (status 200)."""
+    return response is not None and response.status_code == 200
+
+
 def fetch_with_retry(url: str, max_retries: int = 3, delay: float = 1.0) -> Optional[requests.Response]:
     """
-    Fetch a URL with retry logic for failed requests.
+    Fetch a URL with exponential backoff retry logic using Tenacity.
     
     Args:
         url (str): The URL to fetch
-        max_retries (int): Maximum number of retry attempts
-        delay (float): Delay between retries in seconds
+        max_retries (int): Maximum number of retry attempts (default: 3)
+        delay (float): Initial delay between retries in seconds (default: 1.0)
         
     Returns:
         requests.Response or None: Response object if successful, None if all retries failed
     """
-    for attempt in range(max_retries + 1):
+    @retry(
+        stop=stop_after_attempt(max_retries + 1),
+        wait=wait_exponential(multiplier=delay, min=delay, max=60),
+        retry=retry_if_exception_type(requests.exceptions.RequestException) | retry_if_not_result(_is_good_response),
+        reraise=False,
+    )
+    def _fetch():
         try:
             response = requests.get(url, headers=HEADERS, timeout=30)
-            if response.status_code == 200:
-                return response
-            elif attempt < max_retries:
-                print(f"Attempt {attempt + 1} failed for {url}, Status: {response.status_code}. Retrying in {delay}s...")
-                time.sleep(delay)
-            else:
-                print(f"All {max_retries + 1} attempts failed for {url}, Status: {response.status_code}")
-                return response
+            
+            # Only print if response is not successful
+            if response.status_code != 200:
+                print(f"Response for {url}: Status {response.status_code}")
+            
+            # Handle Retry-After header for 429 rate limiting
+            if response.status_code == 429:
+                retry_after = response.headers.get('Retry-After')
+                if retry_after:
+                    try:
+                        wait_time = int(retry_after)
+                        print(f"Rate limited (429). Waiting {wait_time}s as requested by server for {url}...")
+                        time.sleep(wait_time)
+                    except ValueError:
+                        pass
+            
+            return response
         except requests.exceptions.RequestException as e:
-            if attempt < max_retries:
-                print(f"Attempt {attempt + 1} failed for {url}, Error: {e}. Retrying in {delay}s...")
-                time.sleep(delay)
-            else:
-                print(f"All {max_retries + 1} attempts failed for {url}, Error: {e}")
-                return None
+            print(f"Request exception for {url}: {e}")
+            return None
     
-    return None
+    try:
+        return _fetch()
+    except Exception:
+        return None
 
 
 def extract_links_from_content(content: PageElement) -> list:
@@ -263,6 +289,7 @@ def scrape_branch(
                     state_name, url, jsonl_fp, regs, lex_path=path, lock=lock, pbar=pbar, max_retries=max_retries
                 )
             except Exception as e:
+                # any other error other than status code, e.g. html element doesn't exist
                 print(f"ERROR: Failed to process leaf {url}: {e}")
                 # Log the failed URL and error
                 try:
