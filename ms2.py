@@ -331,20 +331,31 @@ def worker(
         except queue.Empty:
             break
 
-        scrape_branch(
-            url=f"{site_url}{href}",
-            path=path,
-            continue_from=continue_from,
-            state_name=state_name,
-            jsonl_fp=jsonl_fp,
-            regs=regs,
-            site_url=site_url,
-            internal_class=internal_class,
-            lock=lock,
-            pbar=pbar,
-            max_retries=max_retries,
-        )
-        work_queue.task_done()
+        try:
+            scrape_branch(
+                url=f"{site_url}{href}",
+                path=path,
+                continue_from=continue_from,
+                state_name=state_name,
+                jsonl_fp=jsonl_fp,
+                regs=regs,
+                site_url=site_url,
+                internal_class=internal_class,
+                lock=lock,
+                pbar=pbar,
+                max_retries=max_retries,
+            )
+        except Exception as e:
+            print(f"ERROR: Failed to process branch {site_url}{href}: {e}")
+            # Log the failed URL and error
+            try:
+                with lock:
+                    with open(FAILED_FAILPATH, "a") as f:
+                        f.write(f"{site_url}{href} | Error: {e}\n")
+            except Exception as log_error:
+                print(f"ERROR: Could not log failed URL: {log_error}")
+        finally:
+            work_queue.task_done()
 
 
 def collect_codes_for_state(
