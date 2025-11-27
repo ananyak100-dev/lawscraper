@@ -2,6 +2,7 @@ import argparse
 import json
 import os
 import queue
+import re
 import threading
 from io import TextIOWrapper
 from typing import Optional
@@ -17,6 +18,45 @@ from scraper_utils import (
     JUSTIA_BASE_URL,
     REGULATIONS_BASE_URL,
 )
+
+
+def extract_url_parts(url: str) -> list[tuple]:
+    """
+    Extract hierarchical parts from a Justia URL for sorting.
+    
+    Returns:
+        list of tuples where each tuple is (part_type, numbers, part_string)
+        This allows proper numeric sorting at each level.
+    """
+    # Remove domain and split path
+    path = url.split("//")[-1].split("/", 1)[-1] if "//" in url else url
+    parts = [p for p in path.split("/") if p and p not in ("codes", "delaware")]
+    
+    # For each part, extract the type and numbers
+    structured_parts = []
+    for part in parts:
+        # Extract all numbers from this part
+        nums = [int(n) for n in re.findall(r"\d+", part)]
+        # Extract the prefix (e.g., "title", "chapter", "section")
+        prefix = re.match(r"^([a-z-]+)", part)
+        part_type = prefix.group(1) if prefix else part
+        
+        structured_parts.append((part_type, nums, part))
+    
+    return structured_parts
+
+
+def url_sort_key(url: str) -> tuple:
+    """
+    Generate a sort key for URL ordering.
+    
+    Sorts by:
+    1. Depth (number of path components)
+    2. At each level: part type, then numbers (numerically), then string
+    """
+    parts = extract_url_parts(url)
+    # Return depth, then structured parts for hierarchical numeric sorting
+    return (len(parts), parts)
 
 
 def extract_links_from_content(content: PageElement) -> list:
@@ -345,6 +385,28 @@ def collect_codes_for_state(
             thread.join()
 
         pbar.close()
+    
+    # Sort the file in correct numeric order
+    print(f"Sorting {state_name}.jsonl in numeric order...")
+    save_path = f"{save_dir}/{state_name}.jsonl"
+    
+    # Read all records
+    records = []
+    with open(save_path, "r") as f:
+        for line in f:
+            if line.strip():
+                records.append(json.loads(line))
+    
+    # Sort by URL
+    records.sort(key=lambda r: url_sort_key(r["url"]))
+    
+    # Write back sorted
+    with open(save_path, "w") as f:
+        for record in records:
+            f.write(json.dumps(record))
+            f.write("\n")
+    
+    print(f"Sorted {len(records)} records in {save_path}")
 
 
 if __name__ == "__main__":
