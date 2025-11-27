@@ -25,37 +25,47 @@ _CODES_DIR = Path("codes")
 _REGS_DIR = Path("regs")
 
 
-def extract_url_parts(url: str) -> tuple[list[str], list[int]]:
+def extract_url_parts(url: str) -> list[tuple]:
     """
     Extract hierarchical parts from a Justia URL for sorting.
     
     Returns:
-        tuple of (path_parts, numeric_parts) where:
-        - path_parts: list of URL segments (e.g., ['title-14', 'chapter-43', 'section-4303'])
-        - numeric_parts: list of extracted numbers (e.g., [14, 43, 4303])
+        list of tuples where each tuple is (part_type, numbers, part_string)
+        This allows proper numeric sorting at each level.
     
     Example:
         /codes/delaware/title-14/chapter-43/section-4303/
-        -> (['title-14', 'chapter-43', 'section-4303'], [14, 43, 4303])
+        -> [('title', [14], 'title-14'), ('chapter', [43], 'chapter-43'), ('section', [4303], 'section-4303')]
     """
     # Remove domain and split path
     path = url.split("//")[-1].split("/", 1)[-1] if "//" in url else url
     parts = [p for p in path.split("/") if p and p not in ("codes", "delaware")]
     
-    # Extract numbers from each part for numeric comparison
-    numbers = []
+    # For each part, extract the type and numbers
+    structured_parts = []
     for part in parts:
-        nums = re.findall(r"\d+", part)
-        numbers.extend([int(n) for n in nums])
+        # Extract all numbers from this part
+        nums = [int(n) for n in re.findall(r"\d+", part)]
+        # Extract the prefix (e.g., "title", "chapter", "section")
+        prefix = re.match(r"^([a-z-]+)", part)
+        part_type = prefix.group(1) if prefix else part
+        
+        structured_parts.append((part_type, nums, part))
     
-    return parts, numbers
+    return structured_parts
 
 
 def url_sort_key(url: str) -> tuple:
-    """Generate a sort key for URL ordering."""
-    parts, numbers = extract_url_parts(url)
-    # Return tuple that sorts first by path structure, then by numbers
-    return (len(parts), parts, numbers)
+    """
+    Generate a sort key for URL ordering.
+    
+    Sorts by:
+    1. Depth (number of path components)
+    2. At each level: part type, then numbers (numerically), then string
+    """
+    parts = extract_url_parts(url)
+    # Return depth, then structured parts for hierarchical numeric sorting
+    return (len(parts), parts)
 
 
 def scrape_single_url(
