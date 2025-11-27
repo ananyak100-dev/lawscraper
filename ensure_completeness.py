@@ -104,8 +104,22 @@ def scrape_single_url(
     Returns:
         dict record if successful, None otherwise
     """
+    # Retry up to 3 times on SSL/connection errors
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            response = scraper.get(url, timeout=30)
+            break
+        except Exception as e:
+            if attempt < max_retries - 1:
+                import time
+                time.sleep(2 ** attempt)
+                continue
+            else:
+                print(f"Connection error after {max_retries} attempts for {url}: {e}")
+                return None
+    
     try:
-        response = scraper.get(url, timeout=30)
         if response.status_code != 200:
             return None
         

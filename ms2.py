@@ -4,10 +4,12 @@ import os
 import queue
 import re
 import threading
+import time
 from io import TextIOWrapper
 from typing import Optional
 
 import cloudscraper
+import requests
 from bs4 import BeautifulSoup, PageElement
 from tqdm import tqdm
 
@@ -129,7 +131,22 @@ def process_code_leaf(
     Returns:
     - dict: A dictionary containing the title and content of the leaf node.
     """
-    response = scraper.get(url)
+    # Retry up to 3 times on SSL/connection errors
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            response = scraper.get(url, timeout=30)
+            break
+        except (requests.exceptions.SSLError, requests.exceptions.ConnectionError) as e:
+            if attempt < max_retries - 1:
+                time.sleep(2 ** attempt)  # Exponential backoff: 1s, 2s, 4s
+                continue
+            else:
+                # Final attempt failed, log and return
+                print(f"SSL/Connection error after {max_retries} attempts: {url}")
+                with open(FAILED_FAILPATH, "a") as f:
+                    f.write(f"{url}\n")
+                return None
     if response.status_code == 200:
         soup: BeautifulSoup = BeautifulSoup(response.content, "html.parser")
         # title = soup.find('h1').get_text(strip=True)
@@ -225,7 +242,21 @@ def scrape_branch(
     """
     Recursively scrapes a branch of the website.
     """
-    response = scraper.get(url)
+    # Retry up to 3 times on SSL/connection errors
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            response = scraper.get(url, timeout=30)
+            break
+        except (requests.exceptions.SSLError, requests.exceptions.ConnectionError) as e:
+            if attempt < max_retries - 1:
+                time.sleep(2 ** attempt)
+                continue
+            else:
+                print(f"SSL/Connection error after {max_retries} attempts: {url}")
+                with open(FAILED_FAILPATH, "a") as f:
+                    f.write(f"{url}\n")
+                return
     if response.status_code == 200:
         soup: BeautifulSoup = BeautifulSoup(response.content, "html.parser")
         internal_links_element = soup.find(
