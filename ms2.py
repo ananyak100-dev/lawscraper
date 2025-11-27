@@ -28,13 +28,35 @@ def extract_url_parts(url: str) -> list[tuple]:
         list of tuples where each tuple is (part_type, numbers, part_string)
         This allows proper numeric sorting at each level.
     """
-    # Remove domain and split path
-    path = url.split("//")[-1].split("/", 1)[-1] if "//" in url else url
-    parts = [p for p in path.split("/") if p and p not in ("codes", "delaware")]
+    # Determine if this is a code or regulation
+    is_regulation = 'regulations.justia.com' in url
+    url_type = 'regulation' if is_regulation else 'code'
+    
+    # Remove domain and get path
+    if "//" in url:
+        path = url.split("//")[-1]  # Remove protocol
+        path = path.split("/", 1)[-1] if "/" in path else ""  # Remove domain
+    else:
+        path = url
+    
+    # Split into parts and filter out common non-hierarchical segments
+    parts = path.split("/")
+    # Filter out domain fragments, "codes", "states", state names
+    filtered_parts = []
+    skip_next = False
+    for part in parts:
+        if not part:  # Empty string
+            continue
+        if part in ('codes', 'states', 'delaware', 'law.justia.com', 'regulations.justia.com'):
+            continue
+        # Skip year-only segments (like "2000", "2024")
+        if part.isdigit() and len(part) == 4:
+            continue
+        filtered_parts.append(part)
     
     # For each part, extract the type and numbers
-    structured_parts = []
-    for part in parts:
+    structured_parts = []  # Don't need URL type prefix since files are separated
+    for part in filtered_parts:
         # Extract all numbers from this part
         nums = [int(n) for n in re.findall(r"\d+", part)]
         # Extract the prefix (e.g., "title", "chapter", "section")
@@ -50,13 +72,13 @@ def url_sort_key(url: str) -> tuple:
     """
     Generate a sort key for URL ordering.
     
-    Sorts by:
-    1. Depth (number of path components)
-    2. At each level: part type, then numbers (numerically), then string
+    Sorts hierarchically by comparing path components level by level.
+    Uses numeric sorting at each level for proper ordering.
     """
     parts = extract_url_parts(url)
-    # Return depth, then structured parts for hierarchical numeric sorting
-    return (len(parts), parts)
+    # Just return the structured parts - Python will compare tuples element by element
+    # This gives us hierarchical sorting: title first, then chapter, then section, etc.
+    return parts
 
 
 def extract_links_from_content(content: PageElement) -> list:
