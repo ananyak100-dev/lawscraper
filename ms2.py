@@ -6,14 +6,13 @@ import threading
 from io import TextIOWrapper
 from typing import Optional
 
-import requests
+import cloudscraper
 from bs4 import BeautifulSoup, PageElement
 from tqdm import tqdm
 
 from scraper_utils import (
     CODES_BASE_URL,
     FAILED_FAILPATH,
-    HEADERS,
     JUR_URL_MAP,
     JUSTIA_BASE_URL,
     REGULATIONS_BASE_URL,
@@ -47,6 +46,7 @@ def process_code_leaf(
     state_name: str,
     url: str,
     jsonl_fp: Optional[TextIOWrapper],
+    scraper: cloudscraper.CloudScraper,
     is_reg: bool = False,
     lex_path: Optional[list[int]] = None,
     lock: Optional[threading.Lock] = None,
@@ -58,6 +58,7 @@ def process_code_leaf(
     Args:
     - url (str): The URL of the leaf node.
     - jsonl_fp (TextIOWrapper): The file pointer to write the JSONL records to.
+    - scraper (CloudScraper): The cloudscraper session to use.
     - is_reg (bool): Whether the URL is for a regulation or not.
     - lex_path (list[int]): The lexicographical path to the leaf node.
     - lock (threading.Lock): A lock to make file writes thread-safe.
@@ -66,7 +67,7 @@ def process_code_leaf(
     Returns:
     - dict: A dictionary containing the title and content of the leaf node.
     """
-    response = requests.get(url, headers=HEADERS)
+    response = scraper.get(url)
     if response.status_code == 200:
         soup: BeautifulSoup = BeautifulSoup(response.content, "html.parser")
         # title = soup.find('h1').get_text(strip=True)
@@ -152,6 +153,7 @@ def scrape_branch(
     continue_from: Optional[list[int]],
     state_name: str,
     jsonl_fp: TextIOWrapper,
+    scraper: cloudscraper.CloudScraper,
     regs: bool,
     site_url: str,
     internal_class: str,
@@ -161,7 +163,7 @@ def scrape_branch(
     """
     Recursively scrapes a branch of the website.
     """
-    response = requests.get(url, headers=HEADERS)
+    response = scraper.get(url)
     if response.status_code == 200:
         soup: BeautifulSoup = BeautifulSoup(response.content, "html.parser")
         internal_links_element = soup.find(
@@ -195,6 +197,7 @@ def scrape_branch(
                     new_continue_from,
                     state_name,
                     jsonl_fp,
+                    scraper,
                     regs,
                     site_url,
                     internal_class,
@@ -207,7 +210,7 @@ def scrape_branch(
                 return
 
             process_code_leaf(
-                state_name, url, jsonl_fp, regs, lex_path=path, lock=lock, pbar=pbar
+                state_name, url, jsonl_fp, scraper, regs, lex_path=path, lock=lock, pbar=pbar
             )
     else:
         print(
@@ -221,6 +224,7 @@ def worker(
     work_queue: queue.Queue,
     state_name: str,
     jsonl_fp: TextIOWrapper,
+    scraper: cloudscraper.CloudScraper,
     regs: bool,
     site_url: str,
     internal_class: str,
@@ -242,6 +246,7 @@ def worker(
             continue_from=continue_from,
             state_name=state_name,
             jsonl_fp=jsonl_fp,
+            scraper=scraper,
             regs=regs,
             site_url=site_url,
             internal_class=internal_class,
@@ -280,10 +285,14 @@ def collect_codes_for_state(
         if continue_from is not None:
             mode = "a"
 
+    scraper = cloudscraper.create_scraper()
+    
     with open(f"{save_dir}/{state_name}.jsonl", mode) as f:
-        response = requests.get(state_init_url, headers=HEADERS)
+        response = scraper.get(state_init_url)
         if response.status_code != 200:
             print(f"Failed to get initial page for {state_name}")
+            print(f"  URL: {state_init_url}")
+            print(f"  Status Code: {response.status_code}")
             return
 
         soup = BeautifulSoup(response.content, "html.parser")
@@ -321,6 +330,7 @@ def collect_codes_for_state(
                     work_queue,
                     state_name,
                     f,
+                    scraper,
                     regs,
                     site_base_url,
                     internal_class,

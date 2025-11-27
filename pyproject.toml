@@ -10,7 +10,8 @@ dependencies = [
     "beautifulsoup4",
     "requests",
     "lxml",
-    "tqdm"
+    "tqdm",
+    "cloudscraper>=1.2.71",
 ]
 
 [tool.uv]
